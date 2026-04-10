@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0</h1>
+          <h1>Weebil-S Controller v1.0.1</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -589,9 +589,7 @@
     // Bluetooth functions
     async function connect() {
       try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ name: /WEEBILL/ }]
-        });
+        const device = await navigator.bluetooth.requestDevice({});
         
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService('fee9');
