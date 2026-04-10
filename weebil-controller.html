@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0.8</title>
+  <title>Weebil-S Controller v1.0.9</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.8</h1>
+          <h1>Weebil-S Controller v1.0.9</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -443,6 +443,34 @@
         <div class="control-group">
           <label>Move duration (seconds)</label>
           <input type="number" id="duration" value="2" min="0.5" max="10" step="0.5">
+        </div>
+      </div>
+
+      <!-- Joystick Controls -->
+      <div style="margin-bottom:1.5rem;">
+        <p style="font-size:13px;opacity:0.6;margin-bottom:8px;">Hold to move — then long-press a grid button to save position</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div>
+            <p style="font-size:12px;opacity:0.6;margin-bottom:4px;">Tilt</p>
+            <div style="display:flex;gap:6px;">
+              <button id="tiltUp"   style="padding:12px 20px;border:1px solid #e0e0e0;border-radius:8px;background:white;cursor:pointer;font-size:18px;">▲</button>
+              <button id="tiltDown" style="padding:12px 20px;border:1px solid #e0e0e0;border-radius:8px;background:white;cursor:pointer;font-size:18px;">▼</button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:12px;opacity:0.6;margin-bottom:4px;">Pan</p>
+            <div style="display:flex;gap:6px;">
+              <button id="panLeft"  style="padding:12px 20px;border:1px solid #e0e0e0;border-radius:8px;background:white;cursor:pointer;font-size:18px;">◄</button>
+              <button id="panRight" style="padding:12px 20px;border:1px solid #e0e0e0;border-radius:8px;background:white;cursor:pointer;font-size:18px;">►</button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:12px;opacity:0.6;margin-bottom:4px;">Roll</p>
+            <div style="display:flex;gap:6px;">
+              <button id="rollLeft"  style="padding:12px 20px;border:1px solid #e0e0e0;border-radius:8px;background:white;cursor:pointer;font-size:18px;">↺</button>
+              <button id="rollRight" style="padding:12px 20px;border:1px solid #e0e0e0;border-radius:8px;background:white;cursor:pointer;font-size:18px;">↻</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -790,6 +818,47 @@
         updatePresetsList();
       }
     });
+
+    // Joystick controls
+    let joystickTimer = null;
+
+    function sendJoystick(cmdId, dir) {
+      // dir: 0x11 = positive, 0x01 = negative
+      if (!isConnected || !writeCharacteristic) return;
+      const cmd = buildCommand(cmdId, [0x10, 0xC2, dir]);
+      writeCharacteristic.writeValueWithoutResponse(cmd).catch(e => debugLog(`joy err: ${e.message}`, 'err'));
+    }
+
+    function stopJoystick(cmdId) {
+      if (!isConnected || !writeCharacteristic) return;
+      const cmd = buildCommand(cmdId, [0x10, 0x00, 0x00]);
+      writeCharacteristic.writeValueWithoutResponse(cmd).catch(() => {});
+    }
+
+    function bindJoystick(btnId, cmdId, dir) {
+      const btn = document.getElementById(btnId);
+      const start = () => {
+        sendJoystick(cmdId, dir);
+        joystickTimer = setInterval(() => sendJoystick(cmdId, dir), 80);
+      };
+      const stop = () => {
+        clearInterval(joystickTimer);
+        joystickTimer = null;
+        stopJoystick(cmdId);
+      };
+      btn.addEventListener('mousedown',  start);
+      btn.addEventListener('touchstart', (e) => { e.preventDefault(); start(); }, { passive: false });
+      btn.addEventListener('mouseup',    stop);
+      btn.addEventListener('mouseleave', stop);
+      btn.addEventListener('touchend',   stop);
+    }
+
+    bindJoystick('tiltUp',    0x01, 0x11);
+    bindJoystick('tiltDown',  0x01, 0x01);
+    bindJoystick('panLeft',   0x02, 0x01);
+    bindJoystick('panRight',  0x02, 0x11);
+    bindJoystick('rollLeft',  0x03, 0x01);
+    bindJoystick('rollRight', 0x03, 0x11);
 
     // Initialize
     loadPresets();
