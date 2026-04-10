@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0.9</title>
+  <title>Weebil-S Controller v1.1.0</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.9</h1>
+          <h1>Weebil-S Controller v1.1.0</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -494,6 +494,7 @@
   </div>
 
   <script>
+    // --- Debug log ---
     function debugLog(msg, type = 'info') {
       const log = document.getElementById('debugLog');
       if (!log) return;
@@ -503,166 +504,178 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    // --- State ---
     let gimbalCharacteristic = null;
     let writeCharacteristic = null;
     let isConnected = false;
-    // Raw 16-bit values from heartbeat (factory defaults = home position)
-    let currentRaw = { tilt: 32768, pan: 4096, roll: 0 };
+    let cmdCounter = 0;
+    let currentRaw = { tilt: 32767, pan: 32767, roll: 32767 };
     let presets = {};
     let gridSize = 3;
-    let cmdCounter = 0;
 
-    const connectBtn = document.getElementById('connectBtn');
-    const statusText = document.getElementById('statusText');
-    const batteryText = document.getElementById('batteryText');
-    const modeText = document.getElementById('modeText');
-    const tiltDisplay = document.getElementById('tiltDisplay');
-    const panDisplay = document.getElementById('panDisplay');
-    const rollDisplay = document.getElementById('rollDisplay');
-    const gridSizeSelect = document.getElementById('gridSize');
-    const durationInput = document.getElementById('duration');
-    const buttonGrid = document.getElementById('buttonGrid');
-    const newPresetBtn = document.getElementById('newPresetBtn');
-    const deleteAllBtn = document.getElementById('deleteAllBtn');
-    const presetsList = document.getElementById('presetsList');
+    // --- DOM refs ---
+    const connectBtn    = document.getElementById('connectBtn');
+    const statusText    = document.getElementById('statusText');
+    const batteryText   = document.getElementById('batteryText');
+    const modeText      = document.getElementById('modeText');
+    const tiltDisplay   = document.getElementById('tiltDisplay');
+    const panDisplay    = document.getElementById('panDisplay');
+    const rollDisplay   = document.getElementById('rollDisplay');
+    const gridSizeSelect= document.getElementById('gridSize');
+    const buttonGrid    = document.getElementById('buttonGrid');
+    const newPresetBtn  = document.getElementById('newPresetBtn');
+    const deleteAllBtn  = document.getElementById('deleteAllBtn');
+    const presetsList   = document.getElementById('presetsList');
 
-    // Load presets from localStorage
-    function loadPresets() {
-      const saved = localStorage.getItem('weebilPresets');
-      if (saved) {
+    // --- BLE write queue (serialises all writes — prevents GATT-busy errors) ---
+    let bleWriteQueue = Promise.resolve();
+    function bleWrite(cmd) {
+      bleWriteQueue = bleWriteQueue.then(async () => {
+        if (!writeCharacteristic) return;
         try {
-          presets = JSON.parse(saved);
+          await writeCharacteristic.writeValueWithoutResponse(cmd);
         } catch (e) {
-          presets = {};
+          debugLog(`BLE err: ${e.message}`, 'err');
         }
-      }
+      });
+      return bleWriteQueue;
     }
 
-    function savePresets() {
-      localStorage.setItem('weebilPresets', JSON.stringify(presets));
-    }
-
-    // Create preset button grid
-    function createButtonGrid() {
-      buttonGrid.innerHTML = '';
-      const totalButtons = gridSize * gridSize;
-      
-      for (let i = 0; i < totalButtons; i++) {
-        const btn = document.createElement('button');
-        btn.className = 'preset-btn';
-        
-        const presetKey = `preset_${i}`;
-        if (presets[presetKey]) {
-          btn.innerHTML = presets[presetKey].name || `P${i+1}`;
-          btn.classList.add('saved');
-        } else {
-          btn.innerHTML = `${i+1}`;
-        }
-        
-        btn.addEventListener('click', () => handlePresetClick(i));
-        btn.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          handlePresetSave(i);
-        });
-        
-        // Long press for mobile
-        let pressTimer;
-        btn.addEventListener('touchstart', () => {
-          pressTimer = setTimeout(() => handlePresetSave(i), 500);
-        });
-        btn.addEventListener('touchend', () => {
-          clearTimeout(pressTimer);
-        });
-        
-        buttonGrid.appendChild(btn);
-      }
-    }
-
-    function handlePresetClick(index) {
-      const presetKey = `preset_${index}`;
-      if (presets[presetKey]) {
-        const preset = presets[presetKey];
-        moveToPreset(preset.rawTilt, preset.rawPan, preset.rawRoll);
-      }
-    }
-
-    function handlePresetSave(index) {
-      const presetKey = `preset_${index}`;
-      const name = prompt('Preset name:', presets[presetKey]?.name || `Position ${index+1}`);
-      if (name !== null) {
-        presets[presetKey] = {
-          name: name,
-          rawTilt: currentRaw.tilt,
-          rawPan:  currentRaw.pan,
-          rawRoll: currentRaw.roll
+    // --- Request / response matching ---
+    let pendingResponses = {};
+    function sendAndWait(cmdId, data, timeoutMs = 2000) {
+      return new Promise(async (resolve) => {
+        const timer = setTimeout(() => {
+          delete pendingResponses[cmdId];
+          resolve(null); // timed out — no response came
+        }, timeoutMs);
+        pendingResponses[cmdId] = (arg) => {
+          clearTimeout(timer);
+          resolve(arg);
         };
-        savePresets();
-        createButtonGrid();
-        updatePresetsList();
-      }
-    }
-
-    function updatePresetsList() {
-      presetsList.innerHTML = '';
-      Object.entries(presets).forEach(([key, preset]) => {
-        const div = document.createElement('div');
-        div.className = 'preset-item';
-        
-        const info = document.createElement('div');
-        info.className = 'preset-item-info';
-        
-        const name = document.createElement('p');
-        name.className = 'preset-item-name';
-        name.textContent = preset.name;
-        
-        const coords = document.createElement('p');
-        coords.className = 'preset-item-coords';
-        coords.textContent = `T:0x${(preset.rawTilt||0).toString(16).padStart(4,'0')} P:0x${(preset.rawPan||0).toString(16).padStart(4,'0')} R:0x${(preset.rawRoll||0).toString(16).padStart(4,'0')}`;
-        
-        info.appendChild(name);
-        info.appendChild(coords);
-        
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'preset-item-delete';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.onclick = () => {
-          delete presets[key];
-          savePresets();
-          createButtonGrid();
-          updatePresetsList();
-        };
-        
-        div.appendChild(info);
-        div.appendChild(deleteBtn);
-        presetsList.appendChild(div);
+        await bleWrite(buildCommand(cmdId, data));
       });
     }
 
-    // Bluetooth functions
+    // --- CRC-16/XMODEM ---
+    function calculateCRC(data) {
+      let crc = 0;
+      for (let i = 0; i < data.length; i++) {
+        crc ^= data[i] << 8;
+        for (let j = 0; j < 8; j++) {
+          crc <<= 1;
+          if (crc & 0x10000) crc ^= 0x1021;
+        }
+      }
+      return crc & 0xFFFF;
+    }
+
+    // Build command — CRC covers bytes[4..end-3] = [0x18,0x12, inc, 0x01, cmd, ...data]
+    // This matches the bleebil reference implementation (outputArray.slice(4))
+    function buildCommand(cmdId, data = [0, 0, 0]) {
+      const prefix = [0x24, 0x3c, 0x08, 0x00, 0x18, 0x12];
+      cmdCounter = (cmdCounter + 1) & 0xFF;
+      const header = [cmdCounter, 0x01, cmdId, ...data];
+      const crcData = [0x18, 0x12, ...header]; // include 18 12 per spec
+      const crc = calculateCRC(crcData);
+      return new Uint8Array([...prefix, ...header, crc & 0xFF, (crc >> 8) & 0xFF]);
+    }
+
+    // --- Incoming data handler ---
+    function handleGimbalData(event) {
+      const bytes = Array.from(new Uint8Array(event.target.value.buffer));
+      const raw = bytes.map(b => b.toString(16).padStart(2, '0')).join(' ');
+      debugLog(`RX ${raw}`, 'rx');
+
+      if (bytes.length < 6 || bytes[0] !== 0x24 || bytes[1] !== 0x3e) return;
+
+      // Heartbeat packet [18 15] — contains mode & axis-lock status, NOT position
+      if (bytes[4] === 0x18 && bytes[5] === 0x15 && bytes.length >= 10) {
+        const mode = bytes[8];
+        const lockByte = bytes[9];
+        const modeNames = { 0: 'PF', 1: 'L', 2: 'F', 3: 'POV', 4: 'GO' };
+        modeText.textContent = modeNames[mode] ?? `0x${mode.toString(16)}`;
+        debugLog(`HB mode=${modeNames[mode] ?? mode} lockByte=0x${lockByte.toString(16)}`, 'info');
+        return;
+      }
+
+      // Command response [18 12]
+      if (bytes[4] === 0x18 && bytes[5] === 0x12 && bytes.length >= 12) {
+        const cmdId = bytes[8];
+        const arg = bytes.slice(9, bytes.length - 2); // strip 2 CRC bytes at end
+        const argHex = arg.map(b => b.toString(16).padStart(2, '0')).join('');
+        debugLog(`RSP cmd=0x${cmdId.toString(16).padStart(2,'0')} arg=${argHex}`, 'info');
+
+        // Battery: cmd 0x06 query, response arg=[0x00, battPct]
+        if (cmdId === 0x06 && arg.length >= 2 && arg[0] === 0x00) {
+          batteryText.textContent = `${arg[1]}%`;
+        }
+
+        // Resolve pending sendAndWait
+        if (pendingResponses[cmdId]) {
+          pendingResponses[cmdId](arg);
+          delete pendingResponses[cmdId];
+        }
+      }
+    }
+
+    // --- Position query (sends 0x22/0x24/0x23 and awaits responses) ---
+    async function queryPosition() {
+      if (!isConnected) return;
+      try {
+        // arg = [0x00, posLo, posHi]  (per blog spec)
+        const tiltArg = await sendAndWait(0x22, [0, 0, 0]);
+        const panArg  = await sendAndWait(0x24, [0, 0, 0]);
+        const rollArg = await sendAndWait(0x23, [0, 0, 0]);
+
+        if (tiltArg && tiltArg.length >= 3) currentRaw.tilt = tiltArg[1] | (tiltArg[2] << 8);
+        if (panArg  && panArg.length  >= 3) currentRaw.pan  = panArg[1]  | (panArg[2]  << 8);
+        if (rollArg && rollArg.length >= 3) currentRaw.roll = rollArg[1] | (rollArg[2] << 8);
+
+        updatePositionDisplay();
+        debugLog(`POS T=0x${currentRaw.tilt.toString(16)} P=0x${currentRaw.pan.toString(16)} R=0x${currentRaw.roll.toString(16)}`, 'info');
+      } catch (e) {
+        debugLog(`queryPosition err: ${e.message}`, 'err');
+      }
+    }
+
+    function updatePositionDisplay() {
+      const toDeg = v => ((v / 65535 * 360) - 180).toFixed(1);
+      tiltDisplay.textContent = `${toDeg(currentRaw.tilt)}°`;
+      panDisplay.textContent  = `${toDeg(currentRaw.pan)}°`;
+      rollDisplay.textContent = `${toDeg(currentRaw.roll)}°`;
+    }
+
+    // --- Connect / Disconnect ---
     async function connect() {
       try {
         const device = await navigator.bluetooth.requestDevice({
           acceptAllDevices: true,
           optionalServices: ['0000fee9-0000-1000-8000-00805f9b34fb']
         });
-
-        const server = await device.gatt.connect();
+        const server  = await device.gatt.connect();
         const service = await server.getPrimaryService('0000fee9-0000-1000-8000-00805f9b34fb');
         gimbalCharacteristic = await service.getCharacteristic('d44bc439-abfd-45a2-b575-925416129601');
-        writeCharacteristic = await service.getCharacteristic('d44bc439-abfd-45a2-b575-925416129600');
-        
+        writeCharacteristic  = await service.getCharacteristic('d44bc439-abfd-45a2-b575-925416129600');
+
         isConnected = true;
-        updateConnectionUI(true);
-        debugLog(`Connected to ${device.name}`, 'info');
+        bleWriteQueue = Promise.resolve(); // fresh queue on each connect
+        cmdCounter = 0;
+        pendingResponses = {};
 
         gimbalCharacteristic.addEventListener('characteristicvaluechanged', handleGimbalData);
         await gimbalCharacteristic.startNotifications();
+
+        updateConnectionUI(true);
+        debugLog(`Connected to ${device.name}`, 'info');
         debugLog('Notifications started', 'info');
-        
-        // Heartbeats arrive automatically — no polling needed
-        
+
+        // Query battery then initial position
+        await bleWrite(buildCommand(0x06, [0, 0, 0]));
+        setTimeout(() => queryPosition(), 800);
+
       } catch (error) {
-        console.error('Connection failed:', error);
+        debugLog(`Connect error: ${error.message}`, 'err');
         alert('Failed to connect: ' + error.message);
       }
     }
@@ -671,6 +684,7 @@
       isConnected = false;
       gimbalCharacteristic = null;
       writeCharacteristic = null;
+      pendingResponses = {};
       updateConnectionUI(false);
     }
 
@@ -690,120 +704,163 @@
       }
     }
 
-    function calculateCRC(data) {
-      let crc = 0;
-      for (let i = 0; i < data.length; i++) {
-        crc ^= data[i] << 8;
-        for (let j = 0; j < 8; j++) {
-          crc <<= 1;
-          if (crc & 0x10000) crc ^= 0x1021;
-        }
-      }
-      return crc & 0xFFFF;
+    // --- Presets ---
+    function loadPresets() {
+      const saved = localStorage.getItem('weebilPresets');
+      if (saved) { try { presets = JSON.parse(saved); } catch (e) { presets = {}; } }
     }
 
-    function buildCommand(cmdId, data = [0, 0, 0]) {
-      const prefix = [0x24, 0x3c, 0x08, 0x00, 0x18, 0x12];
-      cmdCounter = (cmdCounter + 1) & 0xFF;
-      const header = [cmdCounter, 0x01, cmdId, ...data];
-      
-      const crcData = [...header];
-      const crc = calculateCRC(crcData);
-      
-      const crcBytes = [crc & 0xFF, (crc >> 8) & 0xFF];
-      return new Uint8Array([...prefix, ...header, ...crcBytes]);
+    function savePresets() {
+      localStorage.setItem('weebilPresets', JSON.stringify(presets));
     }
 
-    async function requestData(cmdId) {
-      if (!isConnected || !writeCharacteristic) return;
-      const cmd = buildCommand(cmdId, [0, 0, 0]);
-      try {
-        await writeCharacteristic.writeValueWithoutResponse(cmd);
-        debugLog(`REQ cmd=0x${cmdId.toString(16).padStart(2,'0')} bytes=${Array.from(cmd).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'tx');
-      } catch (e) {
-        debugLog(`requestData error: ${e.message}`, 'err');
+    function createButtonGrid() {
+      buttonGrid.innerHTML = '';
+      const total = gridSize * gridSize;
+      for (let i = 0; i < total; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'preset-btn';
+        const key = `preset_${i}`;
+        btn.innerHTML = presets[key] ? (presets[key].name || `P${i+1}`) : `${i+1}`;
+        if (presets[key]) btn.classList.add('saved');
+
+        btn.addEventListener('click', () => handlePresetClick(i));
+        btn.addEventListener('contextmenu', e => { e.preventDefault(); handlePresetSave(i); });
+
+        let pressTimer;
+        btn.addEventListener('touchstart',  () => { pressTimer = setTimeout(() => handlePresetSave(i), 600); });
+        btn.addEventListener('touchend',    () => clearTimeout(pressTimer));
+        btn.addEventListener('touchmove',   () => clearTimeout(pressTimer));
+        btn.addEventListener('touchcancel', () => clearTimeout(pressTimer));
+
+        buttonGrid.appendChild(btn);
       }
     }
 
-    function handleGimbalData(event) {
-      const data = event.target.value;
-      const raw = Array.from(new Uint8Array(data.buffer)).map(b=>b.toString(16).padStart(2,'0')).join(' ');
-      debugLog(`RX ${raw}`, 'rx');
-
-      if (data.byteLength < 10) return;
-      if (data.getUint8(0) !== 0x24 || data.getUint8(1) !== 0x3e) return;
-
-      // Heartbeat packet: bytes 4-5 = 18 15
-      // Data bytes 8-15: [tiltLo tiltHi panLo panHi rollLo rollHi ?? ??]
-      if (data.getUint8(4) === 0x18 && data.getUint8(5) === 0x15 && data.byteLength >= 16) {
-        currentRaw.tilt = data.getUint8(8)  | (data.getUint8(9)  << 8);
-        currentRaw.pan  = data.getUint8(10) | (data.getUint8(11) << 8);
-        currentRaw.roll = data.getUint8(12) | (data.getUint8(13) << 8);
-        // Tilt: center=0x8000. Pan/Roll: center=factory default (0x1000 / 0x0000)
-        const tiltDeg = ((currentRaw.tilt - 32768) / 32768 * 180).toFixed(1);
-        const panDeg  = ((currentRaw.pan  - 4096)  / 4096  * 180).toFixed(1);
-        const rollDeg = (currentRaw.roll / 182).toFixed(1); // ~0-360 mapped
-        tiltDisplay.textContent = `${tiltDeg}°`;
-        panDisplay.textContent  = `${panDeg}°`;
-        rollDisplay.textContent = `${rollDeg}°`;
-        debugLog(`HB raw T=0x${currentRaw.tilt.toString(16).padStart(4,'0')} P=0x${currentRaw.pan.toString(16).padStart(4,'0')} R=0x${currentRaw.roll.toString(16).padStart(4,'0')}`, 'info');
-        return;
-      }
-
-      // Direct command response (18 12): cmdId at byte 8
-      const cmdId = data.getUint8(8);
-      const value = data.getUint8(9) | (data.getUint8(10) << 8);
-      switch (cmdId) {
-        case 0x06: batteryText.textContent = value + '%'; break;
-        default: debugLog(`RSP cmd=0x${cmdId.toString(16).padStart(2,'0')} val=${value}`, 'info');
-      }
+    function handlePresetClick(index) {
+      const preset = presets[`preset_${index}`];
+      if (preset) moveToPreset(preset.rawTilt, preset.rawPan, preset.rawRoll);
     }
 
-    async function moveToPreset(rawTilt, rawPan, rawRoll) {
-      if (!isConnected) { alert('Not connected'); return; }
-      debugLog(`Moving to raw T=0x${rawTilt.toString(16)} P=0x${rawPan.toString(16)} R=0x${rawRoll.toString(16)}`, 'info');
-      await sendRaw(rawTilt, 0x06);
-      await sendRaw(rawPan,  0x08);
-      await sendRaw(rawRoll, 0x07);
-    }
-
-    async function sendRaw(rawValue, cmdId) {
-      if (!isConnected || !writeCharacteristic) return;
-      const low  = rawValue & 0xFF;
-      const high = (rawValue >> 8) & 0xFF;
-      const cmd  = buildCommand(cmdId, [0x10, low, high]);
-      debugLog(`TX raw cmd=0x${cmdId.toString(16).padStart(2,'0')} val=0x${rawValue.toString(16).padStart(4,'0')} bytes=${Array.from(cmd).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'tx');
-      try {
-        await writeCharacteristic.writeValueWithoutResponse(cmd);
-      } catch(e) {
-        debugLog(`sendRaw error: ${e.message}`, 'err');
-      }
-    }
-
-    // Event listeners
-    connectBtn.addEventListener('click', () => {
+    async function handlePresetSave(index) {
       if (isConnected) {
-        disconnect();
-      } else {
-        connect();
+        debugLog('Querying position before save…', 'info');
+        await queryPosition();
       }
-    });
+      const key  = `preset_${index}`;
+      const name = prompt('Preset name:', presets[key]?.name || `Position ${index+1}`);
+      if (name !== null) {
+        presets[key] = { name, rawTilt: currentRaw.tilt, rawPan: currentRaw.pan, rawRoll: currentRaw.roll };
+        savePresets();
+        createButtonGrid();
+        updatePresetsList();
+      }
+    }
 
-    gridSizeSelect.addEventListener('change', (e) => {
+    async function moveToPreset(tilt, pan, roll) {
+      if (!isConnected) { alert('Not connected'); return; }
+      debugLog(`>MOVE T=0x${tilt.toString(16)} P=0x${pan.toString(16)} R=0x${roll.toString(16)}`, 'info');
+      await bleWrite(buildCommand(0x06, [0x10, tilt & 0xFF, (tilt >> 8) & 0xFF]));
+      await bleWrite(buildCommand(0x08, [0x10, pan  & 0xFF, (pan  >> 8) & 0xFF]));
+      await bleWrite(buildCommand(0x07, [0x10, roll & 0xFF, (roll >> 8) & 0xFF]));
+    }
+
+    function updatePresetsList() {
+      presetsList.innerHTML = '';
+      Object.entries(presets).forEach(([key, preset]) => {
+        const div  = document.createElement('div');
+        div.className = 'preset-item';
+
+        const info = document.createElement('div');
+        info.className = 'preset-item-info';
+
+        const nameEl = document.createElement('p');
+        nameEl.className = 'preset-item-name';
+        nameEl.textContent = preset.name;
+
+        const coords = document.createElement('p');
+        coords.className = 'preset-item-coords';
+        coords.textContent = `T:0x${(preset.rawTilt??0).toString(16).padStart(4,'0')} P:0x${(preset.rawPan??0).toString(16).padStart(4,'0')} R:0x${(preset.rawRoll??0).toString(16).padStart(4,'0')}`;
+
+        info.appendChild(nameEl);
+        info.appendChild(coords);
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'preset-item-delete';
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = () => { delete presets[key]; savePresets(); createButtonGrid(); updatePresetsList(); };
+
+        div.appendChild(info);
+        div.appendChild(delBtn);
+        presetsList.appendChild(div);
+      });
+    }
+
+    // --- Joystick ---
+    // From bleebil source: SP_FORWARD=[0x10,0x2C,0x01], SP_REVERSE=[0x10,0x2C,0x11]
+    // tiltUp=REVERSE(0x11), tiltDown=FORWARD(0x01)
+    // panLeft=FORWARD(0x01), panRight=REVERSE(0x11)
+    // rollCW=FORWARD(0x01), rollCCW=REVERSE(0x11)
+    let joystickTimers = {};
+
+    function sendJoystick(cmdId, dir) {
+      if (!isConnected) return;
+      debugLog(`JOY 0x${cmdId.toString(16)} dir=0x${dir.toString(16)}`, 'tx');
+      bleWrite(buildCommand(cmdId, [0x10, 0x2C, dir]));
+    }
+
+    function stopJoystick(cmdId) {
+      if (!isConnected) return;
+      bleWrite(buildCommand(cmdId, [0x10, 0x00, 0x00]));
+      setTimeout(() => queryPosition(), 600); // refresh position after move
+    }
+
+    function bindJoystick(btnId, cmdId, dir) {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+
+      const start = (e) => {
+        e.preventDefault();
+        if (joystickTimers[btnId]) return;
+        sendJoystick(cmdId, dir);
+        joystickTimers[btnId] = setInterval(() => sendJoystick(cmdId, dir), 100);
+      };
+      const stop = () => {
+        if (!joystickTimers[btnId]) return;
+        clearInterval(joystickTimers[btnId]);
+        delete joystickTimers[btnId];
+        stopJoystick(cmdId);
+      };
+
+      btn.addEventListener('mousedown',   start);
+      btn.addEventListener('touchstart',  start, { passive: false });
+      btn.addEventListener('mouseup',     stop);
+      btn.addEventListener('mouseleave',  stop);
+      btn.addEventListener('touchend',    stop);
+      btn.addEventListener('touchcancel', stop);
+    }
+
+    bindJoystick('tiltUp',    0x01, 0x11); // REVERSE = tilt up
+    bindJoystick('tiltDown',  0x01, 0x01); // FORWARD = tilt down
+    bindJoystick('panLeft',   0x02, 0x01); // FORWARD = pan left
+    bindJoystick('panRight',  0x02, 0x11); // REVERSE = pan right
+    bindJoystick('rollLeft',  0x03, 0x11); // REVERSE = roll CCW (↺)
+    bindJoystick('rollRight', 0x03, 0x01); // FORWARD = roll CW  (↻)
+
+    // --- Event listeners ---
+    connectBtn.addEventListener('click', () => isConnected ? disconnect() : connect());
+
+    gridSizeSelect.addEventListener('change', e => {
       gridSize = parseInt(e.target.value);
       createButtonGrid();
     });
 
-    newPresetBtn.addEventListener('click', () => {
+    newPresetBtn.addEventListener('click', async () => {
+      if (isConnected) await queryPosition();
       const name = prompt('Preset name:');
       if (name) {
         const index = Object.keys(presets).length;
-        presets[`preset_${index}`] = {
-          name: name,
-          tilt: currentPosition.tilt,
-          pan: currentPosition.pan,
-          roll: currentPosition.roll
-        };
+        presets[`preset_${index}`] = { name, rawTilt: currentRaw.tilt, rawPan: currentRaw.pan, rawRoll: currentRaw.roll };
         savePresets();
         createButtonGrid();
         updatePresetsList();
@@ -819,48 +876,7 @@
       }
     });
 
-    // Joystick controls
-    let joystickTimer = null;
-
-    function sendJoystick(cmdId, dir) {
-      // dir: 0x11 = positive, 0x01 = negative
-      if (!isConnected || !writeCharacteristic) return;
-      const cmd = buildCommand(cmdId, [0x10, 0xC2, dir]);
-      writeCharacteristic.writeValueWithoutResponse(cmd).catch(e => debugLog(`joy err: ${e.message}`, 'err'));
-    }
-
-    function stopJoystick(cmdId) {
-      if (!isConnected || !writeCharacteristic) return;
-      const cmd = buildCommand(cmdId, [0x10, 0x00, 0x00]);
-      writeCharacteristic.writeValueWithoutResponse(cmd).catch(() => {});
-    }
-
-    function bindJoystick(btnId, cmdId, dir) {
-      const btn = document.getElementById(btnId);
-      const start = () => {
-        sendJoystick(cmdId, dir);
-        joystickTimer = setInterval(() => sendJoystick(cmdId, dir), 80);
-      };
-      const stop = () => {
-        clearInterval(joystickTimer);
-        joystickTimer = null;
-        stopJoystick(cmdId);
-      };
-      btn.addEventListener('mousedown',  start);
-      btn.addEventListener('touchstart', (e) => { e.preventDefault(); start(); }, { passive: false });
-      btn.addEventListener('mouseup',    stop);
-      btn.addEventListener('mouseleave', stop);
-      btn.addEventListener('touchend',   stop);
-    }
-
-    bindJoystick('tiltUp',    0x01, 0x11);
-    bindJoystick('tiltDown',  0x01, 0x01);
-    bindJoystick('panLeft',   0x02, 0x01);
-    bindJoystick('panRight',  0x02, 0x11);
-    bindJoystick('rollLeft',  0x03, 0x01);
-    bindJoystick('rollRight', 0x03, 0x11);
-
-    // Initialize
+    // --- Init ---
     loadPresets();
     createButtonGrid();
     updatePresetsList();
