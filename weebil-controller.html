@@ -589,7 +589,7 @@
     // Bluetooth functions
     async function connect() {
       try {
-        const device = await navigator.bluetooth.requestDevice({});
+        const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
         
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService('fee9');
