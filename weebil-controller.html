@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0.6</title>
+  <title>Weebil-S Controller v1.0.7</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.6</h1>
+          <h1>Weebil-S Controller v1.0.7</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -630,8 +630,7 @@
         await gimbalCharacteristic.startNotifications();
         debugLog('Notifications started', 'info');
         
-        // Start polling loop
-        pollGimbal();
+        // Heartbeats arrive automatically — no polling needed
         
       } catch (error) {
         console.error('Connection failed:', error);
