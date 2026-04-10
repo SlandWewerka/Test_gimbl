@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.1.4</title>
+  <title>Weebil-S Controller v1.1.5</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.1.4</h1>
+          <h1>Weebil-S Controller v1.1.5</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -781,6 +781,19 @@
       }
     }
 
+    // --- Wrap-aware helpers for 0-65535 ring ---
+    // Shortest signed delta from 'start' to 'end' on a 16-bit ring
+    function ringDelta(start, end) {
+      let d = (end - start + 65536) % 65536;
+      if (d > 32767) d -= 65536;
+      return d;
+    }
+    // Absolute angular distance (always 0-32767)
+    function ringDiff(a, b) {
+      const d = Math.abs(a - b);
+      return Math.min(d, 65536 - d);
+    }
+
     async function sendTarget(tilt, pan, roll) {
       await bleWrite(buildCommand(0x06, [0x10, tilt & 0xFF, (tilt >> 8) & 0xFF]));
       await bleWrite(buildCommand(0x08, [0x10, pan  & 0xFF, (pan  >> 8) & 0xFF]));
@@ -809,12 +822,17 @@
       const startPan  = currentRaw.pan;
       const startRoll = currentRaw.roll;
 
+      // Compute shortest-path deltas on the 16-bit ring (handles ±180° wraparound)
+      const deltaTilt = ringDelta(startTilt, tilt);
+      const deltaPan  = ringDelta(startPan,  pan);
+      const deltaRoll = ringDelta(startRoll, roll);
+
       // Interpolate from current to target over duration
       for (let i = 1; i <= steps; i++) {
         const t  = i / steps;
-        const iT = Math.round(startTilt + (tilt - startTilt) * t);
-        const iP = Math.round(startPan  + (pan  - startPan)  * t);
-        const iR = Math.round(startRoll + (roll - startRoll) * t);
+        const iT = (startTilt + Math.round(deltaTilt * t) + 65536) % 65536;
+        const iP = (startPan  + Math.round(deltaPan  * t) + 65536) % 65536;
+        const iR = (startRoll + Math.round(deltaRoll * t) + 65536) % 65536;
         await sendTarget(iT, iP, iR);
         if (i < steps) await new Promise(r => setTimeout(r, STEP_MS));
       }
@@ -832,8 +850,8 @@
         await new Promise(r => setTimeout(r, 100));
         await queryPosition();
 
-        const tDiff = Math.abs(currentRaw.tilt - tilt);
-        const pDiff = Math.abs(currentRaw.pan  - pan);
+        const tDiff = ringDiff(currentRaw.tilt, tilt);
+        const pDiff = ringDiff(currentRaw.pan,  pan);
 
         if (tDiff <= THRESHOLD && pDiff <= THRESHOLD) {
           if (++stable >= STABLE_NEEDED) {
