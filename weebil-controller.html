@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weebil-S Controller</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    body.dark-mode {
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      width: 280px;
+      background: #fff;
+      border-right: 1px solid #e0e0e0;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+    }
+
+    body.dark-mode .sidebar {
+      background: #2a2a2a;
+      border-right: 1px solid #3a3a3a;
+    }
+
+    .sidebar h2 {
+      margin: 0 0 1.5rem;
+      font-size: 18px;
+      font-weight: 500;
+    }
+
+    #presetsList {
+      flex: 1;
+      margin-bottom: 1.5rem;
+    }
+
+    .preset-item {
+      padding: 10px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    body.dark-mode .preset-item {
+      background: #333;
+      border: 1px solid #444;
+    }
+
+    .preset-item-info {
+      flex: 1;
+    }
+
+    .preset-item-name {
+      margin: 0 0 4px;
+      font-weight: 500;
+    }
+
+    .preset-item-coords {
+      margin: 0;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .preset-item-delete {
+      padding: 4px 8px;
+      background: #ff6b6b;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+
+    .preset-item-delete:hover {
+      background: #ff5252;
+    }
+
+    .sidebar-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 1rem;
+    }
+
+    .sidebar-buttons button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    #newPresetBtn {
+      background: #4299e1;
+      color: white;
+    }
+
+    #newPresetBtn:hover {
+      background: #3182ce;
+    }
+
+    #deleteAllBtn {
+      background: #fc8181;
+      color: white;
+    }
+
+    #deleteAllBtn:hover {
+      background: #f56565;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 2rem;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+
+    body.dark-mode .main {
+      background: #1a1a1a;
+    }
+
+    .header {
+      margin-bottom: 2rem;
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .header-top h1 {
+      font-size: 28px;
+      font-weight: 500;
+    }
+
+    #connectBtn {
+      padding: 10px 20px;
+      background: #48bb78;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    #connectBtn:hover {
+      background: #38a169;
+    }
+
+    #connectBtn.connected {
+      background: #fc8181;
+    }
+
+    #connectBtn.connected:hover {
+      background: #f56565;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 1.5rem;
+    }
+
+    .info-card {
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+
+    body.dark-mode .info-card {
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+    }
+
+    .info-card p:first-child {
+      font-size: 13px;
+      opacity: 0.6;
+      margin: 0 0 4px;
+    }
+
+    .info-card p:last-child {
+      font-size: 16px;
+      font-weight: 500;
+      margin: 0;
+    }
+
+    .position-card {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      margin-bottom: 2rem;
+    }
+
+    body.dark-mode .position-card {
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+    }
+
+    .position-card h3 {
+      margin: 0 0 1rem;
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .position-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+
+    .position-item p:first-child {
+      font-size: 12px;
+      opacity: 0.6;
+      margin: 0 0 6px;
+    }
+
+    .position-item p:last-child {
+      font-size: 20px;
+      font-weight: 500;
+      margin: 0;
+      color: #4299e1;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 2rem;
+      align-items: flex-end;
+    }
+
+    .control-group {
+      flex: 0 0 auto;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 6px;
+      opacity: 0.7;
+    }
+
+    .control-group select,
+    .control-group input {
+      padding: 8px 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: white;
+      color: #333;
+      font-size: 14px;
+    }
+
+    body.dark-mode .control-group select,
+    body.dark-mode .control-group input {
+      background: #2a2a2a;
+      color: #e0e0e0;
+      border: 1px solid #3a3a3a;
+    }
+
+    #duration {
+      width: 80px;
+    }
+
+    .button-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+      gap: 12px;
+    }
+
+    .preset-btn {
+      aspect-ratio: 1;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+      transition: all 0.2s;
+      color: #666;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8px;
+      word-break: break-word;
+    }
+
+    body.dark-mode .preset-btn {
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      color: #aaa;
+    }
+
+    .preset-btn:hover {
+      border-color: #4299e1;
+      box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.1);
+    }
+
+    .preset-btn.saved {
+      background: #4299e1;
+      color: white;
+      border-color: #4299e1;
+    }
+
+    .preset-btn.saved:hover {
+      background: #3182ce;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid #e0e0e0;
+        max-height: 200px;
+      }
+
+      .main {
+        padding: 1rem;
+      }
+
+      .header-top h1 {
+        font-size: 22px;
+      }
+
+      .info-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .position-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <h2>Presets</h2>
+      <div id="presetsList"></div>
+      <div class="sidebar-buttons">
+        <button id="newPresetBtn">New Preset</button>
+        <button id="deleteAllBtn">Clear All</button>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main">
+      <!-- Header -->
+      <div class="header">
+        <div class="header-top">
+          <h1>Weebil-S Controller</h1>
+          <button id="connectBtn">Connect</button>
+        </div>
+
+        <!-- Status Info -->
+        <div class="info-grid">
+          <div class="info-card">
+            <p>Status</p>
+            <p id="statusText">Disconnected</p>
+          </div>
+          <div class="info-card">
+            <p>Battery</p>
+            <p id="batteryText">--</p>
+          </div>
+          <div class="info-card">
+            <p>Mode</p>
+            <p id="modeText">--</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Position Feedback -->
+      <div class="position-card">
+        <h3>Current Position</h3>
+        <div class="position-grid">
+          <div class="position-item">
+            <p>Tilt</p>
+            <p id="tiltDisplay">0°</p>
+          </div>
+          <div class="position-item">
+            <p>Pan</p>
+            <p id="panDisplay">0°</p>
+          </div>
+          <div class="position-item">
+            <p>Roll</p>
+            <p id="rollDisplay">0°</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <div class="control-group">
+          <label>Grid size</label>
+          <select id="gridSize">
+            <option value="3">3x3 (9 buttons)</option>
+            <option value="4">4x4 (16 buttons)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Move duration (seconds)</label>
+          <input type="number" id="duration" value="2" min="0.5" max="10" step="0.5">
+        </div>
+      </div>
+
+      <!-- Button Grid -->
+      <div class="button-grid" id="buttonGrid"></div>
+    </div>
+  </div>
+
+  <script>
+    let gimbalCharacteristic = null;
+    let writeCharacteristic = null;
+    let isConnected = false;
+    let currentPosition = { tilt: 0, pan: 0, roll: 0 };
+    let presets = {};
+    let gridSize = 3;
+    let cmdCounter = 0;
+
+    const connectBtn = document.getElementById('connectBtn');
+    const statusText = document.getElementById('statusText');
+    const batteryText = document.getElementById('batteryText');
+    const modeText = document.getElementById('modeText');
+    const tiltDisplay = document.getElementById('tiltDisplay');
+    const panDisplay = document.getElementById('panDisplay');
+    const rollDisplay = document.getElementById('rollDisplay');
+    const gridSizeSelect = document.getElementById('gridSize');
+    const durationInput = document.getElementById('duration');
+    const buttonGrid = document.getElementById('buttonGrid');
+    const newPresetBtn = document.getElementById('newPresetBtn');
+    const deleteAllBtn = document.getElementById('deleteAllBtn');
+    const presetsList = document.getElementById('presetsList');
+
+    // Load presets from localStorage
+    function loadPresets() {
+      const saved = localStorage.getItem('weebilPresets');
+      if (saved) {
+        try {
+          presets = JSON.parse(saved);
+        } catch (e) {
+          presets = {};
+        }
+      }
+    }
+
+    function savePresets() {
+      localStorage.setItem('weebilPresets', JSON.stringify(presets));
+    }
+
+    // Create preset button grid
+    function createButtonGrid() {
+      buttonGrid.innerHTML = '';
+      const totalButtons = gridSize * gridSize;
+      
+      for (let i = 0; i < totalButtons; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'preset-btn';
+        
+        const presetKey = `preset_${i}`;
+        if (presets[presetKey]) {
+          btn.innerHTML = presets[presetKey].name || `P${i+1}`;
+          btn.classList.add('saved');
+        } else {
+          btn.innerHTML = `${i+1}`;
+        }
+        
+        btn.addEventListener('click', () => handlePresetClick(i));
+        btn.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          handlePresetSave(i);
+        });
+        
+        // Long press for mobile
+        let pressTimer;
+        btn.addEventListener('touchstart', () => {
+          pressTimer = setTimeout(() => handlePresetSave(i), 500);
+        });
+        btn.addEventListener('touchend', () => {
+          clearTimeout(pressTimer);
+        });
+        
+        buttonGrid.appendChild(btn);
+      }
+    }
+
+    function handlePresetClick(index) {
+      const presetKey = `preset_${index}`;
+      if (presets[presetKey]) {
+        const preset = presets[presetKey];
+        moveToPreset(preset.tilt, preset.pan, preset.roll);
+      }
+    }
+
+    function handlePresetSave(index) {
+      const presetKey = `preset_${index}`;
+      const name = prompt('Preset name:', presets[presetKey]?.name || `Position ${index+1}`);
+      if (name !== null) {
+        presets[presetKey] = {
+          name: name,
+          tilt: currentPosition.tilt,
+          pan: currentPosition.pan,
+          roll: currentPosition.roll
+        };
+        savePresets();
+        createButtonGrid();
+        updatePresetsList();
+      }
+    }
+
+    function updatePresetsList() {
+      presetsList.innerHTML = '';
+      Object.entries(presets).forEach(([key, preset]) => {
+        const div = document.createElement('div');
+        div.className = 'preset-item';
+        
+        const info = document.createElement('div');
+        info.className = 'preset-item-info';
+        
+        const name = document.createElement('p');
+        name.className = 'preset-item-name';
+        name.textContent = preset.name;
+        
+        const coords = document.createElement('p');
+        coords.className = 'preset-item-coords';
+        coords.textContent = `T:${Math.round(preset.tilt)}° P:${Math.round(preset.pan)}° R:${Math.round(preset.roll)}°`;
+        
+        info.appendChild(name);
+        info.appendChild(coords);
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'preset-item-delete';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = () => {
+          delete presets[key];
+          savePresets();
+          createButtonGrid();
+          updatePresetsList();
+        };
+        
+        div.appendChild(info);
+        div.appendChild(deleteBtn);
+        presetsList.appendChild(div);
+      });
+    }
+
+    // Bluetooth functions
+    async function connect() {
+      try {
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ name: /WEEBIL/ }]
+        });
+        
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService('fee9');
+        gimbalCharacteristic = await service.getCharacteristic('d44bc439abfd45a2b575925416129601');
+        writeCharacteristic = await service.getCharacteristic('d44bc439abfd45a2b575925416129600');
+        
+        isConnected = true;
+        updateConnectionUI(true);
+        
+        gimbalCharacteristic.addEventListener('characteristicvaluechanged', handleGimbalData);
+        await gimbalCharacteristic.startNotifications();
+        
+        // Get initial data
+        setTimeout(() => requestData(0x06), 100);
+        setTimeout(() => requestData(0x22), 200);
+        setTimeout(() => requestData(0x24), 300);
+        setTimeout(() => requestData(0x23), 400);
+        
+      } catch (error) {
+        console.error('Connection failed:', error);
+        alert('Failed to connect: ' + error.message);
+      }
+    }
+
+    function disconnect() {
+      isConnected = false;
+      gimbalCharacteristic = null;
+      writeCharacteristic = null;
+      updateConnectionUI(false);
+    }
+
+    function updateConnectionUI(connected) {
+      if (connected) {
+        statusText.textContent = 'Connected';
+        statusText.style.color = '#48bb78';
+        connectBtn.textContent = 'Disconnect';
+        connectBtn.classList.add('connected');
+      } else {
+        statusText.textContent = 'Disconnected';
+        statusText.style.color = '';
+        batteryText.textContent = '--';
+        modeText.textContent = '--';
+        connectBtn.textContent = 'Connect';
+        connectBtn.classList.remove('connected');
+      }
+    }
+
+    function calculateCRC(data) {
+      let crc = 0;
+      for (let i = 0; i < data.length; i++) {
+        crc ^= data[i] << 8;
+        for (let j = 0; j < 8; j++) {
+          crc <<= 1;
+          if (crc & 0x10000) crc ^= 0x1021;
+        }
+      }
+      return crc & 0xFFFF;
+    }
+
+    function buildCommand(cmdId, data = [0, 0, 0]) {
+      const prefix = [0x24, 0x3c, 0x08, 0x00, 0x18, 0x12];
+      cmdCounter = (cmdCounter + 1) & 0xFF;
+      const header = [cmdCounter, 0x01, cmdId, ...data];
+      
+      const crcData = [...header];
+      const crc = calculateCRC(crcData);
+      
+      const crcBytes = [crc & 0xFF, (crc >> 8) & 0xFF];
+      return new Uint8Array([...prefix, ...header, ...crcBytes]);
+    }
+
+    async function requestData(cmdId) {
+      if (!isConnected || !writeCharacteristic) return;
+      const cmd = buildCommand(cmdId, [0, 0, 0]);
+      try {
+        await writeCharacteristic.writeValueWithoutResponse(cmd);
+      } catch (e) {
+        console.error('Write failed:', e);
+      }
+    }
+
+    function handleGimbalData(event) {
+      const data = event.target.value;
+      if (data.byteLength >= 10) {
+        if (data.getUint8(0) === 0x24 && data.getUint8(1) === 0x3e) {
+          const cmdId = data.getUint8(6);
+          const value = (data.getUint8(9) << 8) | data.getUint8(8);
+          
+          switch (cmdId) {
+            case 0x06:
+              batteryText.textContent = value + '%';
+              break;
+            case 0x22:
+              currentPosition.tilt = (value / 65535) * 360;
+              tiltDisplay.textContent = Math.round(currentPosition.tilt) + '°';
+              break;
+            case 0x24:
+              currentPosition.pan = (value / 65535) * 360;
+              panDisplay.textContent = Math.round(currentPosition.pan) + '°';
+              break;
+            case 0x23:
+              currentPosition.roll = (value / 65535) * 360;
+              rollDisplay.textContent = Math.round(currentPosition.roll) + '°';
+              break;
+          }
+        }
+      }
+      
+      setTimeout(() => {
+        if (isConnected) {
+          requestData(0x06);
+          requestData(0x22);
+          requestData(0x24);
+          requestData(0x23);
+        }
+      }, 500);
+    }
+
+    async function moveToPreset(tilt, pan, roll) {
+      if (!isConnected) {
+        alert('Not connected');
+        return;
+      }
+      
+      const duration = parseFloat(durationInput.value);
+      const steps = Math.ceil(duration * 10);
+      const tiltStep = (tilt - currentPosition.tilt) / steps;
+      const panStep = (pan - currentPosition.pan) / steps;
+      const rollStep = (roll - currentPosition.roll) / steps;
+      
+      for (let i = 1; i <= steps; i++) {
+        setTimeout(() => {
+          if (isConnected) {
+            const newTilt = currentPosition.tilt + (tiltStep * i);
+            const newPan = currentPosition.pan + (panStep * i);
+            const newRoll = currentPosition.roll + (rollStep * i);
+            
+            sendPosition(newTilt, 0x06);
+            sendPosition(newPan, 0x08);
+            sendPosition(newRoll, 0x07);
+          }
+        }, i * 100);
+      }
+    }
+
+    function sendPosition(angle, cmdId) {
+      const value = Math.round((angle % 360 / 360) * 65535);
+      const low = value & 0xFF;
+      const high = (value >> 8) & 0xFF;
+      const cmd = buildCommand(cmdId, [0x10, low, high]);
+      
+      if (isConnected && writeCharacteristic) {
+        writeCharacteristic.writeValueWithoutResponse(cmd).catch(e => console.error('Write failed:', e));
+      }
+    }
+
+    // Event listeners
+    connectBtn.addEventListener('click', () => {
+      if (isConnected) {
+        disconnect();
+      } else {
+        connect();
+      }
+    });
+
+    gridSizeSelect.addEventListener('change', (e) => {
+      gridSize = parseInt(e.target.value);
+      createButtonGrid();
+    });
+
+    newPresetBtn.addEventListener('click', () => {
+      const name = prompt('Preset name:');
+      if (name) {
+        const index = Object.keys(presets).length;
+        presets[`preset_${index}`] = {
+          name: name,
+          tilt: currentPosition.tilt,
+          pan: currentPosition.pan,
+          roll: currentPosition.roll
+        };
+        savePresets();
+        createButtonGrid();
+        updatePresetsList();
+      }
+    });
+
+    deleteAllBtn.addEventListener('click', () => {
+      if (confirm('Delete all presets?')) {
+        presets = {};
+        savePresets();
+        createButtonGrid();
+        updatePresetsList();
+      }
+    });
+
+    // Initialize
+    loadPresets();
+    createButtonGrid();
+    updatePresetsList();
+  </script>
+</body>
+</html>
