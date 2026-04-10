@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0.3</title>
+  <title>Weebil-S Controller v1.0.5</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.3</h1>
+          <h1>Weebil-S Controller v1.0.5</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -453,7 +453,10 @@
       <div style="margin-top:2rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
           <button onclick="document.getElementById('debugPanel').style.display = document.getElementById('debugPanel').style.display === 'none' ? 'block' : 'none'" style="padding:6px 12px;border:1px solid #e0e0e0;border-radius:6px;background:white;cursor:pointer;font-size:13px;">Toggle Debug Log</button>
-          <button onclick="document.getElementById('debugLog').innerHTML=''" style="padding:6px 12px;border:1px solid #e0e0e0;border-radius:6px;background:white;cursor:pointer;font-size:13px;">Clear</button>
+          <div style="display:flex;gap:6px;">
+            <button onclick="navigator.clipboard.writeText(document.getElementById('debugLog').innerText).then(()=>alert('Copied!'))" style="padding:6px 12px;border:1px solid #e0e0e0;border-radius:6px;background:white;cursor:pointer;font-size:13px;">Copy</button>
+            <button onclick="document.getElementById('debugLog').innerHTML=''" style="padding:6px 12px;border:1px solid #e0e0e0;border-radius:6px;background:white;cursor:pointer;font-size:13px;">Clear</button>
+          </div>
         </div>
         <div id="debugPanel" style="display:none;">
           <div id="debugLog" style="background:#111;color:#0f0;font-family:monospace;font-size:11px;padding:12px;border-radius:8px;height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></div>
@@ -627,11 +630,8 @@
         await gimbalCharacteristic.startNotifications();
         debugLog('Notifications started', 'info');
         
-        // Get initial data
-        setTimeout(() => requestData(0x06), 100);
-        setTimeout(() => requestData(0x22), 200);
-        setTimeout(() => requestData(0x24), 300);
-        setTimeout(() => requestData(0x23), 400);
+        // Start polling loop
+        pollGimbal();
         
       } catch (error) {
         console.error('Connection failed:', error);
@@ -706,9 +706,14 @@
           const cmdId = data.getUint8(6);
           const value = (data.getUint8(9) << 8) | data.getUint8(8);
           
+          const allBytes = Array.from(new Uint8Array(data.buffer));
           switch (cmdId) {
             case 0x06:
               batteryText.textContent = value + '%';
+              break;
+            case 0x08:
+              // Generic status/ACK — log all bytes for protocol analysis
+              debugLog(`0x08 status: ${allBytes.map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'info');
               break;
             case 0x22:
               currentPosition.tilt = (value / 65535) * 360;
@@ -722,18 +727,23 @@
               currentPosition.roll = (value / 65535) * 360;
               rollDisplay.textContent = Math.round(currentPosition.roll) + '°';
               break;
+            default:
+              debugLog(`Unhandled cmdId=0x${cmdId.toString(16).padStart(2,'0')} val=${value}`, 'info');
           }
         }
       }
       
-      setTimeout(() => {
-        if (isConnected) {
-          requestData(0x06);
-          requestData(0x22);
-          requestData(0x24);
-          requestData(0x23);
-        }
-      }, 500);
+    }
+
+    async function pollGimbal() {
+      if (!isConnected) return;
+      const cmds = [0x06, 0x22, 0x24, 0x23];
+      for (const cmd of cmds) {
+        if (!isConnected) return;
+        await requestData(cmd);
+        await new Promise(r => setTimeout(r, 150));
+      }
+      setTimeout(pollGimbal, 300);
     }
 
     async function moveToPreset(tilt, pan, roll) {
