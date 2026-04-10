@@ -847,7 +847,7 @@
       // Correction loop: poll at ~10Hz, re-command if still off by > 1°
       const THRESHOLD    = 182; // ~1° in raw units (65535/360)
       const STABLE_NEEDED = 3;
-      const TIMEOUT_MS   = durationMs + 500;
+      const TIMEOUT_MS   = durationMs + 250;
       let stable = 0;
       const deadline = Date.now() + TIMEOUT_MS;
 
