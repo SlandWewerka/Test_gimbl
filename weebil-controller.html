@@ -590,7 +590,7 @@
     async function connect() {
       try {
         const device = await navigator.bluetooth.requestDevice({
-          filters: [{ name: /WEEBIL/ }]
+          filters: [{ name: /WEEBILL/ }]
         });
         
         const server = await device.gatt.connect();
