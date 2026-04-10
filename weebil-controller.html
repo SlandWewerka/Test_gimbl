@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0.5</title>
+  <title>Weebil-S Controller v1.0.6</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.5</h1>
+          <h1>Weebil-S Controller v1.0.6</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -701,87 +701,71 @@
       const data = event.target.value;
       const raw = Array.from(new Uint8Array(data.buffer)).map(b=>b.toString(16).padStart(2,'0')).join(' ');
       debugLog(`RX ${raw}`, 'rx');
-      if (data.byteLength >= 10) {
-        if (data.getUint8(0) === 0x24 && data.getUint8(1) === 0x3e) {
-          const cmdId = data.getUint8(6);
-          const value = (data.getUint8(9) << 8) | data.getUint8(8);
-          
-          const allBytes = Array.from(new Uint8Array(data.buffer));
-          switch (cmdId) {
-            case 0x06:
-              batteryText.textContent = value + '%';
-              break;
-            case 0x08:
-              // Generic status/ACK — log all bytes for protocol analysis
-              debugLog(`0x08 status: ${allBytes.map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'info');
-              break;
-            case 0x22:
-              currentPosition.tilt = (value / 65535) * 360;
-              tiltDisplay.textContent = Math.round(currentPosition.tilt) + '°';
-              break;
-            case 0x24:
-              currentPosition.pan = (value / 65535) * 360;
-              panDisplay.textContent = Math.round(currentPosition.pan) + '°';
-              break;
-            case 0x23:
-              currentPosition.roll = (value / 65535) * 360;
-              rollDisplay.textContent = Math.round(currentPosition.roll) + '°';
-              break;
-            default:
-              debugLog(`Unhandled cmdId=0x${cmdId.toString(16).padStart(2,'0')} val=${value}`, 'info');
-          }
-        }
-      }
-      
-    }
 
-    async function pollGimbal() {
-      if (!isConnected) return;
-      const cmds = [0x06, 0x22, 0x24, 0x23];
-      for (const cmd of cmds) {
-        if (!isConnected) return;
-        await requestData(cmd);
-        await new Promise(r => setTimeout(r, 150));
+      if (data.byteLength < 10) return;
+      if (data.getUint8(0) !== 0x24 || data.getUint8(1) !== 0x3e) return;
+
+      // Heartbeat packet: bytes 4-5 = 18 15
+      // Data bytes 8-15: [tiltLo tiltHi panLo panHi rollLo rollHi ?? ??]
+      if (data.getUint8(4) === 0x18 && data.getUint8(5) === 0x15 && data.byteLength >= 16) {
+        const tiltRaw  = data.getUint8(8)  | (data.getUint8(9)  << 8);
+        const panRaw   = data.getUint8(10) | (data.getUint8(11) << 8);
+        const rollRaw  = data.getUint8(12) | (data.getUint8(13) << 8);
+        // 0x8000 = center (0°), range maps to ±180°
+        currentPosition.tilt = (tiltRaw - 32768) / 32768 * 180;
+        currentPosition.pan  = (panRaw  - 32768) / 32768 * 180;
+        currentPosition.roll = (rollRaw - 32768) / 32768 * 180;
+        tiltDisplay.textContent = currentPosition.tilt.toFixed(1) + '°';
+        panDisplay.textContent  = currentPosition.pan.toFixed(1)  + '°';
+        rollDisplay.textContent = currentPosition.roll.toFixed(1) + '°';
+        debugLog(`HB tilt=${currentPosition.tilt.toFixed(1)}° pan=${currentPosition.pan.toFixed(1)}° roll=${currentPosition.roll.toFixed(1)}°`, 'info');
+        return;
       }
-      setTimeout(pollGimbal, 300);
+
+      // Direct command response (18 12): cmdId at byte 8
+      const cmdId = data.getUint8(8);
+      const value = data.getUint8(9) | (data.getUint8(10) << 8);
+      switch (cmdId) {
+        case 0x06: batteryText.textContent = value + '%'; break;
+        default: debugLog(`RSP cmd=0x${cmdId.toString(16).padStart(2,'0')} val=${value}`, 'info');
+      }
     }
 
     async function moveToPreset(tilt, pan, roll) {
-      if (!isConnected) {
-        alert('Not connected');
-        return;
-      }
-      
+      if (!isConnected) { alert('Not connected'); return; }
+
       const duration = parseFloat(durationInput.value);
-      const steps = Math.ceil(duration * 10);
-      const tiltStep = (tilt - currentPosition.tilt) / steps;
-      const panStep = (pan - currentPosition.pan) / steps;
-      const rollStep = (roll - currentPosition.roll) / steps;
-      
+      const steps = Math.max(1, Math.ceil(duration * 5));
+      const delay = Math.round((duration * 1000) / steps);
+      const startTilt = currentPosition.tilt;
+      const startPan  = currentPosition.pan;
+      const startRoll = currentPosition.roll;
+
+      debugLog(`Moving to T=${tilt.toFixed(1)} P=${pan.toFixed(1)} R=${roll.toFixed(1)} in ${steps} steps`, 'info');
+
       for (let i = 1; i <= steps; i++) {
-        setTimeout(() => {
-          if (isConnected) {
-            const newTilt = currentPosition.tilt + (tiltStep * i);
-            const newPan = currentPosition.pan + (panStep * i);
-            const newRoll = currentPosition.roll + (rollStep * i);
-            
-            sendPosition(newTilt, 0x06);
-            sendPosition(newPan, 0x08);
-            sendPosition(newRoll, 0x07);
-          }
-        }, i * 100);
+        if (!isConnected) break;
+        const t = i / steps;
+        await sendPosition(startTilt + (tilt - startTilt) * t, 0x06);
+        await sendPosition(startPan  + (pan  - startPan)  * t, 0x08);
+        await sendPosition(startRoll + (roll - startRoll) * t, 0x07);
+        await new Promise(r => setTimeout(r, delay));
       }
     }
 
-    function sendPosition(angle, cmdId) {
-      const value = Math.round((angle % 360 / 360) * 65535);
+    async function sendPosition(angle, cmdId) {
+      const value = Math.round(((angle + 180) / 360) * 65535);
       const low = value & 0xFF;
       const high = (value >> 8) & 0xFF;
       const cmd = buildCommand(cmdId, [0x10, low, high]);
 
       if (isConnected && writeCharacteristic) {
         debugLog(`POS cmd=0x${cmdId.toString(16).padStart(2,'0')} angle=${Math.round(angle)}° val=${value} bytes=${Array.from(cmd).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'tx');
-        writeCharacteristic.writeValueWithoutResponse(cmd).catch(e => debugLog(`sendPosition error: ${e.message}`, 'err'));
+        try {
+          await writeCharacteristic.writeValueWithoutResponse(cmd);
+        } catch(e) {
+          debugLog(`sendPosition error: ${e.message}`, 'err');
+        }
       }
     }
 
