@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0</title>
+  <title>Weebil-S Controller v1.0.2</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.1</h1>
+          <h1>Weebil-S Controller v1.0.2</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -589,12 +589,15 @@
     // Bluetooth functions
     async function connect() {
       try {
-        const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
-        
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['0000fee9-0000-1000-8000-00805f9b34fb']
+        });
+
         const server = await device.gatt.connect();
-        const service = await server.getPrimaryService('fee9');
-        gimbalCharacteristic = await service.getCharacteristic('d44bc439abfd45a2b575925416129601');
-        writeCharacteristic = await service.getCharacteristic('d44bc439abfd45a2b575925416129600');
+        const service = await server.getPrimaryService('0000fee9-0000-1000-8000-00805f9b34fb');
+        gimbalCharacteristic = await service.getCharacteristic('d44bc439-abfd-45a2-b575-925416129601');
+        writeCharacteristic = await service.getCharacteristic('d44bc439-abfd-45a2-b575-925416129600');
         
         isConnected = true;
         updateConnectionUI(true);
