@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.1.5</title>
+  <title>Weebil-S Controller v1.1.6</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.1.5</h1>
+          <h1>Weebil-S Controller v1.1.6</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -443,6 +443,10 @@
         <div class="control-group">
           <label>Move duration (seconds)</label>
           <input type="number" id="duration" value="2" min="0.5" max="10" step="0.5">
+        </div>
+        <div class="control-group" style="display:flex;align-items:center;gap:8px;padding-bottom:2px;">
+          <input type="checkbox" id="overshootToggle" checked style="width:16px;height:16px;cursor:pointer;">
+          <label for="overshootToggle" style="margin:0;opacity:0.7;cursor:pointer;">Overshoot protection</label>
         </div>
       </div>
 
@@ -842,33 +846,36 @@
         }
       }
 
-      setMoveStatus('Overshoot protection', '#ed8936');
+      const overshootEnabled = document.getElementById('overshootToggle').checked;
+      if (overshootEnabled) {
+        setMoveStatus('Overshoot protection', '#ed8936');
 
-      // Correction loop: poll at ~10Hz, re-command if still off by > 1°
-      const THRESHOLD    = 182; // ~1° in raw units (65535/360)
-      const STABLE_NEEDED = 3;
-      const TIMEOUT_MS   = durationMs + 250;
-      let stable = 0;
-      const deadline = Date.now() + TIMEOUT_MS;
+        // Correction loop: poll at ~10Hz, re-command if still off by > 1°
+        const THRESHOLD    = 182; // ~1° in raw units (65535/360)
+        const STABLE_NEEDED = 3;
+        const TIMEOUT_MS   = durationMs + 250;
+        let stable = 0;
+        const deadline = Date.now() + TIMEOUT_MS;
 
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 100));
-        await queryPosition();
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 100));
+          await queryPosition();
 
-        const tDiff = ringDiff(currentRaw.tilt, tilt);
-        const pDiff = ringDiff(currentRaw.pan,  pan);
+          const tDiff = ringDiff(currentRaw.tilt, tilt);
+          const pDiff = ringDiff(currentRaw.pan,  pan);
 
-        if (tDiff <= THRESHOLD && pDiff <= THRESHOLD) {
-          if (++stable >= STABLE_NEEDED) {
-            debugLog(`SETTLED`, 'info');
-            break;
+          if (tDiff <= THRESHOLD && pDiff <= THRESHOLD) {
+            if (++stable >= STABLE_NEEDED) {
+              debugLog(`SETTLED`, 'info');
+              break;
+            }
+          } else {
+            stable = 0;
+            debugLog(`CORRECT Terr=${tDiff} Perr=${pDiff} — resend`, 'info');
+            await sendTarget(tilt, pan, roll);
           }
-        } else {
-          stable = 0;
-          debugLog(`CORRECT Terr=${tDiff} Perr=${pDiff} — resend`, 'info');
-          await sendTarget(tilt, pan, roll);
         }
-      }
+      } // end overshootEnabled
 
       // Resume background poll
       positionPollInterval = setInterval(() => queryPosition(), 1000);
