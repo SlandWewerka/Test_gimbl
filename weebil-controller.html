@@ -828,13 +828,18 @@
       const deltaRoll = ringDelta(startRoll, roll);
 
       // Interpolate from current to target over duration
+      // Subtract actual BLE write time from each sleep so total ≈ durationMs
       for (let i = 1; i <= steps; i++) {
+        const stepStart = performance.now();
         const t  = i / steps;
         const iT = (startTilt + Math.round(deltaTilt * t) + 65536) % 65536;
         const iP = (startPan  + Math.round(deltaPan  * t) + 65536) % 65536;
         const iR = (startRoll + Math.round(deltaRoll * t) + 65536) % 65536;
         await sendTarget(iT, iP, iR);
-        if (i < steps) await new Promise(r => setTimeout(r, STEP_MS));
+        if (i < steps) {
+          const remaining = STEP_MS - (performance.now() - stepStart);
+          if (remaining > 0) await new Promise(r => setTimeout(r, remaining));
+        }
       }
 
       setMoveStatus('Overshoot protection', '#ed8936');
