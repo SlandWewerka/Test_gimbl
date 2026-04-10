@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.1.0</title>
+  <title>Weebil-S Controller v1.1.2</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.1.0</h1>
+          <h1>Weebil-S Controller v1.1.2</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -510,6 +510,7 @@
     let isConnected = false;
     let cmdCounter = 0;
     let currentRaw = { tilt: 32767, pan: 32767, roll: 32767 };
+    let positionPollInterval = null;
     let presets = {};
     let gridSize = 3;
 
@@ -607,8 +608,11 @@
         debugLog(`RSP cmd=0x${cmdId.toString(16).padStart(2,'0')} arg=${argHex}`, 'info');
 
         // Battery: cmd 0x06 query, response arg=[0x00, battPct]
+        // Raw value is 0-255 range; convert to 0-100%
         if (cmdId === 0x06 && arg.length >= 2 && arg[0] === 0x00) {
-          batteryText.textContent = `${arg[1]}%`;
+          const raw = arg[1];
+          const pct = raw > 100 ? Math.round(raw / 255 * 100) : raw;
+          batteryText.textContent = `${pct}%`;
         }
 
         // Resolve pending sendAndWait
@@ -670,9 +674,10 @@
         debugLog(`Connected to ${device.name}`, 'info');
         debugLog('Notifications started', 'info');
 
-        // Query battery then initial position
+        // Query battery then initial position, then poll every 3s
         await bleWrite(buildCommand(0x06, [0, 0, 0]));
         setTimeout(() => queryPosition(), 800);
+        positionPollInterval = setInterval(() => queryPosition(), 1000);
 
       } catch (error) {
         debugLog(`Connect error: ${error.message}`, 'err');
@@ -685,6 +690,7 @@
       gimbalCharacteristic = null;
       writeCharacteristic = null;
       pendingResponses = {};
+      if (positionPollInterval) { clearInterval(positionPollInterval); positionPollInterval = null; }
       updateConnectionUI(false);
     }
 
@@ -757,12 +763,49 @@
       }
     }
 
-    async function moveToPreset(tilt, pan, roll) {
-      if (!isConnected) { alert('Not connected'); return; }
-      debugLog(`>MOVE T=0x${tilt.toString(16)} P=0x${pan.toString(16)} R=0x${roll.toString(16)}`, 'info');
+    async function sendTarget(tilt, pan, roll) {
       await bleWrite(buildCommand(0x06, [0x10, tilt & 0xFF, (tilt >> 8) & 0xFF]));
       await bleWrite(buildCommand(0x08, [0x10, pan  & 0xFF, (pan  >> 8) & 0xFF]));
       await bleWrite(buildCommand(0x07, [0x10, roll & 0xFF, (roll >> 8) & 0xFF]));
+    }
+
+    async function moveToPreset(tilt, pan, roll) {
+      if (!isConnected) { alert('Not connected'); return; }
+      debugLog(`>MOVE T=0x${tilt.toString(16)} P=0x${pan.toString(16)} R=0x${roll.toString(16)}`, 'info');
+
+      // Pause the background poll so it doesn't interfere during correction
+      if (positionPollInterval) { clearInterval(positionPollInterval); positionPollInterval = null; }
+
+      await sendTarget(tilt, pan, roll);
+
+      // Correction loop: poll at ~10Hz, re-command target if still off by > 1°
+      const THRESHOLD = 182; // ~1° in raw units (65535/360)
+      const STABLE_NEEDED = 3;  // consecutive in-range reads = settled
+      const TIMEOUT_MS = 5000;
+      let stable = 0;
+      const deadline = Date.now() + TIMEOUT_MS;
+
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 100));
+        await queryPosition();
+
+        const tDiff = Math.abs(currentRaw.tilt - tilt);
+        const pDiff = Math.abs(currentRaw.pan  - pan);
+
+        if (tDiff <= THRESHOLD && pDiff <= THRESHOLD) {
+          if (++stable >= STABLE_NEEDED) {
+            debugLog(`SETTLED in ${TIMEOUT_MS - (deadline - Date.now())}ms`, 'info');
+            break;
+          }
+        } else {
+          stable = 0;
+          debugLog(`CORRECT Terr=${tDiff} Perr=${pDiff} — resend`, 'info');
+          await sendTarget(tilt, pan, roll);
+        }
+      }
+
+      // Resume background poll
+      positionPollInterval = setInterval(() => queryPosition(), 1000);
     }
 
     function updatePresetsList() {
