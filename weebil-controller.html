@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0.2</title>
+  <title>Weebil-S Controller v1.0.3</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.2</h1>
+          <h1>Weebil-S Controller v1.0.3</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -448,10 +448,30 @@
 
       <!-- Button Grid -->
       <div class="button-grid" id="buttonGrid"></div>
+
+      <!-- Debug Log -->
+      <div style="margin-top:2rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <button onclick="document.getElementById('debugPanel').style.display = document.getElementById('debugPanel').style.display === 'none' ? 'block' : 'none'" style="padding:6px 12px;border:1px solid #e0e0e0;border-radius:6px;background:white;cursor:pointer;font-size:13px;">Toggle Debug Log</button>
+          <button onclick="document.getElementById('debugLog').innerHTML=''" style="padding:6px 12px;border:1px solid #e0e0e0;border-radius:6px;background:white;cursor:pointer;font-size:13px;">Clear</button>
+        </div>
+        <div id="debugPanel" style="display:none;">
+          <div id="debugLog" style="background:#111;color:#0f0;font-family:monospace;font-size:11px;padding:12px;border-radius:8px;height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
+    function debugLog(msg, type = 'info') {
+      const log = document.getElementById('debugLog');
+      if (!log) return;
+      const colors = { tx: '#4fc3f7', rx: '#81c784', err: '#ef9a9a', info: '#fff176' };
+      const time = new Date().toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      log.innerHTML += `<span style="color:${colors[type]}">[${time}][${type.toUpperCase()}] ${msg}</span>\n`;
+      log.scrollTop = log.scrollHeight;
+    }
+
     let gimbalCharacteristic = null;
     let writeCharacteristic = null;
     let isConnected = false;
@@ -601,9 +621,11 @@
         
         isConnected = true;
         updateConnectionUI(true);
-        
+        debugLog(`Connected to ${device.name}`, 'info');
+
         gimbalCharacteristic.addEventListener('characteristicvaluechanged', handleGimbalData);
         await gimbalCharacteristic.startNotifications();
+        debugLog('Notifications started', 'info');
         
         // Get initial data
         setTimeout(() => requestData(0x06), 100);
@@ -669,13 +691,16 @@
       const cmd = buildCommand(cmdId, [0, 0, 0]);
       try {
         await writeCharacteristic.writeValueWithoutResponse(cmd);
+        debugLog(`REQ cmd=0x${cmdId.toString(16).padStart(2,'0')} bytes=${Array.from(cmd).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'tx');
       } catch (e) {
-        console.error('Write failed:', e);
+        debugLog(`requestData error: ${e.message}`, 'err');
       }
     }
 
     function handleGimbalData(event) {
       const data = event.target.value;
+      const raw = Array.from(new Uint8Array(data.buffer)).map(b=>b.toString(16).padStart(2,'0')).join(' ');
+      debugLog(`RX ${raw}`, 'rx');
       if (data.byteLength >= 10) {
         if (data.getUint8(0) === 0x24 && data.getUint8(1) === 0x3e) {
           const cmdId = data.getUint8(6);
@@ -743,9 +768,10 @@
       const low = value & 0xFF;
       const high = (value >> 8) & 0xFF;
       const cmd = buildCommand(cmdId, [0x10, low, high]);
-      
+
       if (isConnected && writeCharacteristic) {
-        writeCharacteristic.writeValueWithoutResponse(cmd).catch(e => console.error('Write failed:', e));
+        debugLog(`POS cmd=0x${cmdId.toString(16).padStart(2,'0')} angle=${Math.round(angle)}° val=${value} bytes=${Array.from(cmd).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'tx');
+        writeCharacteristic.writeValueWithoutResponse(cmd).catch(e => debugLog(`sendPosition error: ${e.message}`, 'err'));
       }
     }
 
