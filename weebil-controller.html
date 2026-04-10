@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.0.7</title>
+  <title>Weebil-S Controller v1.0.8</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.0.7</h1>
+          <h1>Weebil-S Controller v1.0.8</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -478,7 +478,8 @@
     let gimbalCharacteristic = null;
     let writeCharacteristic = null;
     let isConnected = false;
-    let currentPosition = { tilt: 0, pan: 0, roll: 0 };
+    // Raw 16-bit values from heartbeat (factory defaults = home position)
+    let currentRaw = { tilt: 32768, pan: 4096, roll: 0 };
     let presets = {};
     let gridSize = 3;
     let cmdCounter = 0;
@@ -553,7 +554,7 @@
       const presetKey = `preset_${index}`;
       if (presets[presetKey]) {
         const preset = presets[presetKey];
-        moveToPreset(preset.tilt, preset.pan, preset.roll);
+        moveToPreset(preset.rawTilt, preset.rawPan, preset.rawRoll);
       }
     }
 
@@ -563,9 +564,9 @@
       if (name !== null) {
         presets[presetKey] = {
           name: name,
-          tilt: currentPosition.tilt,
-          pan: currentPosition.pan,
-          roll: currentPosition.roll
+          rawTilt: currentRaw.tilt,
+          rawPan:  currentRaw.pan,
+          rawRoll: currentRaw.roll
         };
         savePresets();
         createButtonGrid();
@@ -588,7 +589,7 @@
         
         const coords = document.createElement('p');
         coords.className = 'preset-item-coords';
-        coords.textContent = `T:${Math.round(preset.tilt)}° P:${Math.round(preset.pan)}° R:${Math.round(preset.roll)}°`;
+        coords.textContent = `T:0x${(preset.rawTilt||0).toString(16).padStart(4,'0')} P:0x${(preset.rawPan||0).toString(16).padStart(4,'0')} R:0x${(preset.rawRoll||0).toString(16).padStart(4,'0')}`;
         
         info.appendChild(name);
         info.appendChild(coords);
@@ -707,17 +708,17 @@
       // Heartbeat packet: bytes 4-5 = 18 15
       // Data bytes 8-15: [tiltLo tiltHi panLo panHi rollLo rollHi ?? ??]
       if (data.getUint8(4) === 0x18 && data.getUint8(5) === 0x15 && data.byteLength >= 16) {
-        const tiltRaw  = data.getUint8(8)  | (data.getUint8(9)  << 8);
-        const panRaw   = data.getUint8(10) | (data.getUint8(11) << 8);
-        const rollRaw  = data.getUint8(12) | (data.getUint8(13) << 8);
-        // 0x8000 = center (0°), range maps to ±180°
-        currentPosition.tilt = (tiltRaw - 32768) / 32768 * 180;
-        currentPosition.pan  = (panRaw  - 32768) / 32768 * 180;
-        currentPosition.roll = (rollRaw - 32768) / 32768 * 180;
-        tiltDisplay.textContent = currentPosition.tilt.toFixed(1) + '°';
-        panDisplay.textContent  = currentPosition.pan.toFixed(1)  + '°';
-        rollDisplay.textContent = currentPosition.roll.toFixed(1) + '°';
-        debugLog(`HB tilt=${currentPosition.tilt.toFixed(1)}° pan=${currentPosition.pan.toFixed(1)}° roll=${currentPosition.roll.toFixed(1)}°`, 'info');
+        currentRaw.tilt = data.getUint8(8)  | (data.getUint8(9)  << 8);
+        currentRaw.pan  = data.getUint8(10) | (data.getUint8(11) << 8);
+        currentRaw.roll = data.getUint8(12) | (data.getUint8(13) << 8);
+        // Tilt: center=0x8000. Pan/Roll: center=factory default (0x1000 / 0x0000)
+        const tiltDeg = ((currentRaw.tilt - 32768) / 32768 * 180).toFixed(1);
+        const panDeg  = ((currentRaw.pan  - 4096)  / 4096  * 180).toFixed(1);
+        const rollDeg = (currentRaw.roll / 182).toFixed(1); // ~0-360 mapped
+        tiltDisplay.textContent = `${tiltDeg}°`;
+        panDisplay.textContent  = `${panDeg}°`;
+        rollDisplay.textContent = `${rollDeg}°`;
+        debugLog(`HB raw T=0x${currentRaw.tilt.toString(16).padStart(4,'0')} P=0x${currentRaw.pan.toString(16).padStart(4,'0')} R=0x${currentRaw.roll.toString(16).padStart(4,'0')}`, 'info');
         return;
       }
 
@@ -730,41 +731,24 @@
       }
     }
 
-    async function moveToPreset(tilt, pan, roll) {
+    async function moveToPreset(rawTilt, rawPan, rawRoll) {
       if (!isConnected) { alert('Not connected'); return; }
-
-      const duration = parseFloat(durationInput.value);
-      const steps = Math.max(1, Math.ceil(duration * 5));
-      const delay = Math.round((duration * 1000) / steps);
-      const startTilt = currentPosition.tilt;
-      const startPan  = currentPosition.pan;
-      const startRoll = currentPosition.roll;
-
-      debugLog(`Moving to T=${tilt.toFixed(1)} P=${pan.toFixed(1)} R=${roll.toFixed(1)} in ${steps} steps`, 'info');
-
-      for (let i = 1; i <= steps; i++) {
-        if (!isConnected) break;
-        const t = i / steps;
-        await sendPosition(startTilt + (tilt - startTilt) * t, 0x06);
-        await sendPosition(startPan  + (pan  - startPan)  * t, 0x08);
-        await sendPosition(startRoll + (roll - startRoll) * t, 0x07);
-        await new Promise(r => setTimeout(r, delay));
-      }
+      debugLog(`Moving to raw T=0x${rawTilt.toString(16)} P=0x${rawPan.toString(16)} R=0x${rawRoll.toString(16)}`, 'info');
+      await sendRaw(rawTilt, 0x06);
+      await sendRaw(rawPan,  0x08);
+      await sendRaw(rawRoll, 0x07);
     }
 
-    async function sendPosition(angle, cmdId) {
-      const value = Math.round(((angle + 180) / 360) * 65535);
-      const low = value & 0xFF;
-      const high = (value >> 8) & 0xFF;
-      const cmd = buildCommand(cmdId, [0x10, low, high]);
-
-      if (isConnected && writeCharacteristic) {
-        debugLog(`POS cmd=0x${cmdId.toString(16).padStart(2,'0')} angle=${Math.round(angle)}° val=${value} bytes=${Array.from(cmd).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'tx');
-        try {
-          await writeCharacteristic.writeValueWithoutResponse(cmd);
-        } catch(e) {
-          debugLog(`sendPosition error: ${e.message}`, 'err');
-        }
+    async function sendRaw(rawValue, cmdId) {
+      if (!isConnected || !writeCharacteristic) return;
+      const low  = rawValue & 0xFF;
+      const high = (rawValue >> 8) & 0xFF;
+      const cmd  = buildCommand(cmdId, [0x10, low, high]);
+      debugLog(`TX raw cmd=0x${cmdId.toString(16).padStart(2,'0')} val=0x${rawValue.toString(16).padStart(4,'0')} bytes=${Array.from(cmd).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`, 'tx');
+      try {
+        await writeCharacteristic.writeValueWithoutResponse(cmd);
+      } catch(e) {
+        debugLog(`sendRaw error: ${e.message}`, 'err');
       }
     }
 
