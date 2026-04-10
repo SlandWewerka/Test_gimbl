@@ -431,11 +431,6 @@
         </div>
       </div>
 
-      <!-- Move Status -->
-      <div id="moveStatus" style="display:none;margin-bottom:1.5rem;">
-        <span id="moveStatusBadge" style="display:inline-block;padding:6px 16px;border-radius:20px;font-size:14px;font-weight:500;"></span>
-      </div>
-
       <!-- Controls -->
       <div class="controls">
         <div class="control-group">
@@ -477,6 +472,11 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- Move Status -->
+      <div id="moveStatus" style="display:none;margin-bottom:1rem;">
+        <span id="moveStatusBadge" style="display:inline-block;padding:6px 16px;border-radius:20px;font-size:14px;font-weight:500;"></span>
       </div>
 
       <!-- Button Grid -->
@@ -792,6 +792,7 @@
       if (isMoving) return;
       isMoving = true;
       setMoveStatus('Moving', '#4299e1');
+      await new Promise(r => setTimeout(r, 0)); // flush DOM repaint before BLE work
 
       const durationSec = parseFloat(document.getElementById('duration').value) || 2;
       const durationMs  = durationSec * 1000;
