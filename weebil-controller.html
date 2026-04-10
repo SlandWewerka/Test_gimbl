@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Weebil-S Controller v1.1.3</title>
+  <title>Weebil-S Controller v1.1.4</title>
   <style>
     * {
       margin: 0;
@@ -391,7 +391,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-top">
-          <h1>Weebil-S Controller v1.1.3</h1>
+          <h1>Weebil-S Controller v1.1.4</h1>
           <button id="connectBtn">Connect</button>
         </div>
 
@@ -429,6 +429,11 @@
             <p id="rollDisplay">0°</p>
           </div>
         </div>
+      </div>
+
+      <!-- Move Status -->
+      <div id="moveStatus" style="display:none;margin-bottom:1.5rem;">
+        <span id="moveStatusBadge" style="display:inline-block;padding:6px 16px;border-radius:20px;font-size:14px;font-weight:500;"></span>
       </div>
 
       <!-- Controls -->
@@ -504,6 +509,17 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    // --- Move status ---
+    function setMoveStatus(text, color) {
+      const wrap  = document.getElementById('moveStatus');
+      const badge = document.getElementById('moveStatusBadge');
+      if (!text) { wrap.style.display = 'none'; return; }
+      badge.textContent = text;
+      badge.style.background = color;
+      badge.style.color = 'white';
+      wrap.style.display = 'block';
+    }
+
     // --- State ---
     let gimbalCharacteristic = null;
     let writeCharacteristic = null;
@@ -513,6 +529,7 @@
     let positionPollInterval = null;
     let presets = {};
     let gridSize = 3;
+    let isMoving = false;
 
     // --- DOM refs ---
     const connectBtn    = document.getElementById('connectBtn');
@@ -744,6 +761,7 @@
     }
 
     function handlePresetClick(index) {
+      if (isMoving) return;
       const preset = presets[`preset_${index}`];
       if (preset) moveToPreset(preset.rawTilt, preset.rawPan, preset.rawRoll);
     }
@@ -771,6 +789,9 @@
 
     async function moveToPreset(tilt, pan, roll) {
       if (!isConnected) { alert('Not connected'); return; }
+      if (isMoving) return;
+      isMoving = true;
+      setMoveStatus('Moving', '#4299e1');
 
       const durationSec = parseFloat(document.getElementById('duration').value) || 2;
       const durationMs  = durationSec * 1000;
@@ -796,6 +817,8 @@
         await sendTarget(iT, iP, iR);
         if (i < steps) await new Promise(r => setTimeout(r, STEP_MS));
       }
+
+      setMoveStatus('Overshoot protection', '#ed8936');
 
       // Correction loop: poll at ~10Hz, re-command if still off by > 1°
       const THRESHOLD    = 182; // ~1° in raw units (65535/360)
@@ -825,6 +848,9 @@
 
       // Resume background poll
       positionPollInterval = setInterval(() => queryPosition(), 1000);
+      isMoving = false;
+      setMoveStatus('Done', '#48bb78');
+      setTimeout(() => setMoveStatus(null), 2000);
     }
 
     function updatePresetsList() {
